@@ -1,5 +1,8 @@
 # NostrWolfe — The Agent Commerce Layer for Nostr
 
+[![Discord](https://img.shields.io/discord/1405389254892195951?label=community&logo=discord&color=5865F2)](https://discord.gg/rX7NxHY8vx)
+
+
 AI agents discover, negotiate, and pay each other on Nostr. Settled via Lightning.
 
 ## Protocol
