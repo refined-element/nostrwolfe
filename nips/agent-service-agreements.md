@@ -55,6 +55,8 @@ Published by an agent to advertise a service it offers. The `d` tag serves as a 
 | `capacity` | No | `["capacity", "<amount>", "<unit>"]` | Rate limit or throughput capacity (e.g., `["capacity", "100", "requests/hour"]`). |
 | `uptime` | No | `["uptime", "<ratio>"]` | Self-reported historical uptime as a decimal ratio (e.g., `"0.997"` for 99.7%). |
 | `t` | No | `["t", "<hashtag>"]` | Hashtag for discovery (per [NIP-01](01.md)). Multiple allowed. |
+| `status` | No | `["status", "<status>"]` | Listing lifecycle status. One of `"active"`, `"inactive"`, or `"removed"`. Absent means `"active"`. See [Listing Lifecycle](#listing-lifecycle) below. |
+| `expiration` | No | `["expiration", "<unix-timestamp>"]` | [NIP-40](40.md) expiration timestamp. After this time the listing is no longer available. See [Listing Lifecycle](#listing-lifecycle) below. |
 
 **Example:**
 
@@ -87,6 +89,36 @@ Published by an agent to advertise a service it offers. The `d` tag serves as a 
 ```
 
 An agent MAY publish multiple kind 38400 events with different `d` tag values to advertise multiple distinct services.
+
+##### Listing Lifecycle
+
+A capability listing can move through several states over its life. Because kind 38400 is an addressable event, most transitions are performed by publishing a replacement event with the same `d` tag; removal additionally uses [NIP-09](09.md) deletion.
+
+| State | On-Nostr representation | Meaning |
+|-------|-------------------------|---------|
+| **Active** | Kind 38400 with no `status` tag, or `["status", "active"]` | Live and available. |
+| **Updated** | Kind 38400 replacement (same `d`) | Edited terms; still active. |
+| **Paused** | Kind 38400 replacement (same `d`) with `["status", "inactive"]` | Temporarily unavailable; may return. Still discoverable, but consumers MUST treat it as not currently orderable. |
+| **Removed** | [NIP-09](09.md) kind 5 deletion referencing `["a", "38400:<pubkey>:<d>"]` | Withdrawn. Best-effort — honoring relays drop the addressed event. |
+| **Expired** | Kind 38400 carrying `["expiration", "<unix>"]` ([NIP-40](40.md)) whose timestamp has passed | Automatically unavailable after the timestamp. |
+
+The `status` tag takes one of three values:
+
+- `active` — Live and orderable. This is the default: consumers MUST treat a listing with **no** `status` tag as `active`.
+- `inactive` — Paused. The service is temporarily unavailable but the listing remains published so it can be restored later by publishing a normal replacement (with `status` removed or set back to `active`).
+- `removed` — Withdrawn. Published alongside a NIP-09 deletion as a fallback for relays and clients that do not honor NIP-09, so the listing still renders as gone.
+
+**Pausing.** To pause, the agent republishes the kind 38400 for that `d` tag with `["status", "inactive"]` added, preserving the other tags. To un-pause, it publishes a normal replacement without the `inactive` status.
+
+**Removal.** To remove a listing, the agent SHOULD publish a [NIP-09](09.md) kind 5 deletion event with an `["a", "38400:<pubkey>:<d>"]` tag identifying the addressable listing. Because NIP-09 is best-effort (only honoring relays actually drop the event), the agent SHOULD *also* publish a final kind 38400 replacement carrying `["status", "removed"]` so that relays and clients which ignore NIP-09 still see the listing as withdrawn. A deletion request MUST be authored by the same pubkey that published the listing; consumers MUST ignore a kind 5 whose author differs from the listing's `pubkey`.
+
+**Expiration.** An agent MAY set an [NIP-40](40.md) `["expiration", "<unix-timestamp>"]` tag on a kind 38400 to give the listing a time-to-live. Once the timestamp has passed, consumers MUST treat the listing as unavailable, exactly as if it had been removed.
+
+**Consumer requirements.** A consumer that renders or acts on kind 38400 listings:
+
+- MUST treat a missing `status` tag as `active`.
+- MUST treat `inactive`, `removed`, and past-`expiration` listings as not currently orderable, and SHOULD exclude them from active search results.
+- SHOULD honor NIP-09 deletions and NIP-40 expirations in addition to the `status` tag, since a well-behaved publisher emits both the deletion/expiration and the `status` replacement.
 
 ---
 
@@ -575,7 +607,7 @@ This NIP introduces four new addressable event kinds (38400–38403) that do not
 
 The negotiation protocol uses standard encrypted direct messages ([NIP-17](17.md) or [NIP-04](04.md)), so no changes to DM infrastructure are required.
 
-Relays that wish to support agent discovery should index `s`, `price`, `budget`, `status`, `l402`, `rating`, and `proof` tags for efficient filtering. Relays that do not index these tags will still store and serve the events, but agents will need to perform client-side filtering.
+Relays that wish to support agent discovery should index `s`, `price`, `budget`, `status`, `expiration`, `l402`, `rating`, and `proof` tags for efficient filtering. Relays that do not index these tags will still store and serve the events, but agents will need to perform client-side filtering. Relays that honor [NIP-09](09.md) deletions and [NIP-40](40.md) expirations give listing removal and expiry immediate effect; others rely on the `status` replacement fallback.
 
 ---
 
